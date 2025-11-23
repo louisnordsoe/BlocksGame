@@ -1,12 +1,19 @@
 "use strict";
 
 (() => {
+
+const AudioContext = window.AudioContext || window.webkitAudioContext;
+const audioCtx = new AudioContext();
+
   const BOARD_SIZE = 8;
   const BASE_POINTS_PER_TILE = 10;
   const LINE_CLEAR_BONUS = 80;
   const SNAP_DISTANCE_PX = 250;
   const SHAPES_PER_BATCH = 3;
 
+  const MULTIPLIER_FLASH_DURATION = 900;
+
+  const LINE_CLEAR_FLASH_DURATION = 650;
   const SHAPES = [
     { name: "Single", color: "#f94144", matrix: [[1]] },
     { name: "Domino", color: "#f3722c", matrix: [[1, 1]] },
@@ -32,6 +39,63 @@
     place: "sounds/place-block.mp3",
     clear: "sounds/line-clear.mp3",
     gameOver: "sounds/game-over.mp3"
+  };
+
+  const STATUS_THEME_CLASSES = [
+    "status-theme-single",
+    "status-theme-double",
+    "status-theme-triple",
+    "status-theme-quad",
+    "status-theme-combo",
+    "status-theme-combo-strong",
+    "status-theme-combo-epic",
+    "status-theme-perfect"
+  ];
+
+  const CLEAR_FEEDBACK = {
+    singleRow: {
+      theme: "status-theme-single",
+      messages: ["Solo Snap!", "Line Pop!", "Solo Combo!", "Quick Clip!"]
+    },
+    singleColumn: {
+      theme: "status-theme-single",
+      messages: ["Column Pop!", "Vertical Combo!", "Tall Tap!", "Slim Slam!"]
+    },
+    double: {
+      theme: "status-theme-double",
+      messages: ["Double Deal!", "Two-for-One!", "Twin Combo!", "Double Dash!"]
+    },
+    triple: {
+      theme: "status-theme-triple",
+      messages: ["Triple Pop!", "3X Heat!", "Hat Trick Combo!", "Triple Zap!"]
+    },
+    quad: {
+      theme: "status-theme-quad",
+      messages: [
+        "Mega Combo!",
+        "4X Blast!",
+        "Quad Crush!",
+        "Combo Storm!",
+        "4X Hype!",
+        "Mega Pop!"
+      ]
+    },
+    comboBasic: {
+      theme: "status-theme-combo",
+      messages: ["Combo Cross!", "Grid Mash!", "Swift Combo!", "Combo Flow!"]
+    },
+    comboStrong: {
+      theme: "status-theme-combo-strong",
+      messages: ["Combo Surge!", "Super Combo!", "Power Mesh!"]
+    },
+    comboEpic: {
+      theme: "status-theme-combo-epic",
+      messages: ["Mega Grid!", "Combo Nova!"]
+    },
+    perfect: {
+      theme: "status-theme-perfect",
+      messages: ["✨ Perfect Combo!", "Board Reset!", "Flawless Combo!", "Wipeout!", "All Clear!"]
+    }
   };
 
   document.addEventListener("DOMContentLoaded", () => {
@@ -68,6 +132,9 @@
       isGameOver: false,
       previewCells: [],
       statusPulseTimeout: null,
+      multiplierFlashTimeout: null,
+      multiplierFlashHideTimeout: null,
+      clearFlashTimeouts: [],
       drag: {
         active: false,
         pointerId: null,
@@ -78,6 +145,8 @@
         ghostOffset: null
       }
     };
+
+    const multiplierFlashEl = ensureMultiplierFlashElement();
 
     const handleDragMove = (event) => {
       if (!state.drag.active || !pointerMatches(event)) {
@@ -121,13 +190,75 @@
       stopDragging();
     };
 
+    function clearMultiplierFlash() {
+      if (!multiplierFlashEl) {
+        return;
+      }
+      if (state.multiplierFlashTimeout !== null) {
+        window.clearTimeout(state.multiplierFlashTimeout);
+        state.multiplierFlashTimeout = null;
+      }
+      if (state.multiplierFlashHideTimeout !== null) {
+        window.clearTimeout(state.multiplierFlashHideTimeout);
+        state.multiplierFlashHideTimeout = null;
+      }
+      multiplierFlashEl.dataset.multiplier = "";
+      multiplierFlashEl.classList.remove(
+        "combo-flash-three",
+        "combo-flash-four",
+        "combo-flash-five"
+      );
+      multiplierFlashEl.classList.remove("visible");
+      multiplierFlashEl.hidden = true;
+    }
+
+    function showMultiplierFlash(multiplier) {
+      if (!multiplierFlashEl) {
+        return;
+      }
+      if (state.multiplierFlashTimeout !== null) {
+        window.clearTimeout(state.multiplierFlashTimeout);
+        state.multiplierFlashTimeout = null;
+      }
+      if (state.multiplierFlashHideTimeout !== null) {
+        window.clearTimeout(state.multiplierFlashHideTimeout);
+        state.multiplierFlashHideTimeout = null;
+      }
+      multiplierFlashEl.classList.remove(
+        "combo-flash-three",
+        "combo-flash-four",
+        "combo-flash-five"
+      );
+      multiplierFlashEl.hidden = false;
+      multiplierFlashEl.textContent = `${multiplier}X`;
+      if (multiplier === 3) {
+        multiplierFlashEl.classList.add("combo-flash-three");
+      } else if (multiplier === 4) {
+        multiplierFlashEl.classList.add("combo-flash-four");
+      } else if (multiplier >= 5) {
+        multiplierFlashEl.classList.add("combo-flash-five");
+      }
+      multiplierFlashEl.dataset.multiplier = String(multiplier);
+      multiplierFlashEl.classList.add("visible");
+      state.multiplierFlashTimeout = window.setTimeout(() => {
+        multiplierFlashEl.classList.remove("visible");
+        state.multiplierFlashTimeout = null;
+        state.multiplierFlashHideTimeout = window.setTimeout(() => {
+          multiplierFlashEl.hidden = true;
+          state.multiplierFlashHideTimeout = null;
+        }, 220);
+      }, MULTIPLIER_FLASH_DURATION);
+    }
+
     function init() {
       stopDragging(true);
+      clearLineClearEffects();
       resetStatus();
       hideGameOverModal();
+      clearMultiplierFlash();
       state.board = createEmptyBoard();
       state.boardCells = buildBoardCells();
-      state.nextShapes = createShapeBatch();
+      state.nextShapes = createShapeBatch(state.board);
       state.selectedShapeIndex = null;
       state.score = 0;
       state.isGameOver = false;
@@ -142,6 +273,7 @@
       cancelStatusPulse();
       elements.status.textContent = "";
       elements.status.classList.remove("lose");
+      removeStatusThemeClasses(elements.status);
     }
 
     function buildBoardCells() {
@@ -349,6 +481,77 @@
       state.previewCells = [];
     }
 
+    function clearLineClearEffects() {
+      if (!Array.isArray(state.clearFlashTimeouts)) {
+        state.clearFlashTimeouts = [];
+      }
+      state.clearFlashTimeouts.forEach((timeoutId) => window.clearTimeout(timeoutId));
+      state.clearFlashTimeouts = [];
+      if (!Array.isArray(state.boardCells)) {
+        state.boardCells = [];
+        return;
+      }
+      state.boardCells.forEach((rowCells) => {
+        rowCells.forEach((cell) => {
+          if (!cell) {
+            return;
+          }
+          cell.classList.remove("clear-flash");
+          cell.style.removeProperty("--clear-flash-angle");
+          if (cell.dataset.clearFlashTimeout) {
+            window.clearTimeout(Number(cell.dataset.clearFlashTimeout));
+            delete cell.dataset.clearFlashTimeout;
+          }
+        });
+      });
+    }
+
+    function triggerLineClearFlash(rows, cols) {
+      if (!Array.isArray(state.boardCells) || !state.boardCells.length) {
+        return;
+      }
+      const targets = new Set();
+      const addCell = (row, col) => {
+        const cell = state.boardCells[row]?.[col];
+        if (!cell || targets.has(cell)) {
+          return;
+        }
+        targets.add(cell);
+        if (cell.dataset.clearFlashTimeout) {
+          window.clearTimeout(Number(cell.dataset.clearFlashTimeout));
+        }
+        cell.classList.remove("clear-flash");
+        // Force reflow so the animation reliably restarts.
+        void cell.offsetWidth;
+        const angle = Math.floor(Math.random() * 360);
+        cell.style.setProperty("--clear-flash-angle", `${angle}deg`);
+        cell.classList.add("clear-flash");
+        const timeoutId = window.setTimeout(() => {
+          cell.classList.remove("clear-flash");
+          cell.style.removeProperty("--clear-flash-angle");
+          delete cell.dataset.clearFlashTimeout;
+          const index = state.clearFlashTimeouts.indexOf(timeoutId);
+          if (index !== -1) {
+            state.clearFlashTimeouts.splice(index, 1);
+          }
+        }, LINE_CLEAR_FLASH_DURATION);
+        cell.dataset.clearFlashTimeout = String(timeoutId);
+        state.clearFlashTimeouts.push(timeoutId);
+      };
+
+      rows?.forEach((rowIndex) => {
+        for (let col = 0; col < BOARD_SIZE; col += 1) {
+          addCell(rowIndex, col);
+        }
+      });
+
+      cols?.forEach((colIndex) => {
+        for (let row = 0; row < BOARD_SIZE; row += 1) {
+          addCell(row, colIndex);
+        }
+      });
+    }
+
     function attemptPlacement(anchorRow, anchorCol) {
       if (state.selectedShapeIndex === null || state.isGameOver) {
         return false;
@@ -368,26 +571,40 @@
       });
 
       const tilesPlaced = placement.cells.length;
+      const clearResult = clearCompletedLines(state.board);
+      const moveMultiplier = clearResult.totalLines > 0 ? clearResult.totalLines : 1;
       let pointsEarned = tilesPlaced * BASE_POINTS_PER_TILE;
-      const { totalLines, rowsCleared, colsCleared } = clearCompletedLines(state.board);
-      if (totalLines > 0) {
-        pointsEarned += totalLines * LINE_CLEAR_BONUS;
-        const parts = [];
-        if (rowsCleared) {
-          parts.push(`${rowsCleared} ${rowsCleared === 1 ? "row" : "rows"}`);
+      if (clearResult.totalLines > 0) {
+        triggerLineClearFlash(clearResult.rows, clearResult.cols);
+        pointsEarned += clearResult.totalLines * LINE_CLEAR_BONUS;
+        const boardIsEmpty = isBoardEmpty(state.board);
+        const feedback = generateClearFeedback(
+          clearResult.rowsCleared,
+          clearResult.colsCleared,
+          clearResult.totalLines,
+          boardIsEmpty
+        );
+        if (feedback) {
+          pulseStatus(feedback.message, feedback.themeClass);
+        } else {
+          pulseStatus("Clear!");
         }
-        if (colsCleared) {
-          parts.push(`${colsCleared} ${colsCleared === 1 ? "column" : "columns"}`);
-        }
-        const description = parts.join(" and ") || `${totalLines} ${totalLines === 1 ? "line" : "lines"}`;
-        pulseStatus(`Cleared ${description}!`);
         audio.play("clear");
+        if (moveMultiplier >= 3) {
+          showMultiplierFlash(moveMultiplier);
+        } else {
+          clearMultiplierFlash();
+        }
       } else {
         audio.play("place");
+        clearMultiplierFlash();
       }
+
+      pointsEarned *= moveMultiplier;
 
       state.score += pointsEarned;
       updateScore(state.score);
+
       state.nextShapes.splice(state.selectedShapeIndex, 1);
       state.selectedShapeIndex = null;
       state.drag.lastHover = null;
@@ -396,7 +613,7 @@
       renderNextShapes();
 
       if (state.nextShapes.length === 0) {
-        state.nextShapes = createShapeBatch();
+        state.nextShapes = createShapeBatch(state.board);
         renderNextShapes();
       }
 
@@ -404,10 +621,14 @@
       return true;
     }
 
-    function pulseStatus(message) {
+    function pulseStatus(message, themeClass) {
       cancelStatusPulse();
       elements.status.textContent = message;
       elements.status.classList.remove("lose");
+      removeStatusThemeClasses(elements.status);
+      if (themeClass && STATUS_THEME_CLASSES.includes(themeClass)) {
+        elements.status.classList.add(themeClass);
+      }
       elements.status.classList.add("pulse");
       state.statusPulseTimeout = window.setTimeout(() => {
         elements.status.classList.remove("pulse");
@@ -432,7 +653,10 @@
         state.isGameOver = true;
         stopDragging(true);
         cancelStatusPulse();
+        clearLineClearEffects();
+        clearMultiplierFlash();
         elements.status.textContent = "No moves left. Game over!";
+        removeStatusThemeClasses(elements.status);
         elements.status.classList.add("lose");
         audio.play("gameOver");
         showGameOverModal();
@@ -663,6 +887,23 @@
     };
   }
 
+  function ensureMultiplierFlashElement() {
+    if (typeof document === "undefined") {
+      return null;
+    }
+    const existing = document.querySelector(".combo-flash");
+    if (existing instanceof HTMLElement) {
+      return existing;
+    }
+    const element = document.createElement("div");
+    element.className = "combo-flash";
+    element.hidden = true;
+    element.setAttribute("aria-hidden", "true");
+    const target = document.body ?? document.documentElement;
+    target.appendChild(element);
+    return element;
+  }
+
   function createEmptyBoard() {
     return Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(null));
   }
@@ -684,44 +925,187 @@ function rotateMatrix(matrix) {
   return newMatrix;
 }
 
-function createShapeBatch() {
-    const batch = [];
-    
-    // Create a temporary list of shapes that should be considered as templates
-    // Exclude the fixed, explicit vertical shapes like Tall3/Tall4 if we are rotating.
-    const rotationTemplates = SHAPES.filter(shape => 
-        shape.name !== "Tall3" && shape.name !== "Tall4"
-    );
-
-    while (batch.length < SHAPES_PER_BATCH) {
-        // 1. Pick a base shape template (e.g., Bar4)
-        const template = rotationTemplates[Math.floor(Math.random() * rotationTemplates.length)];
-        let newShape = cloneShapeDefinition(template);
-
-        // 2. Decide how many rotations to apply (0, 1, 2, or 3 times)
-        const rotations = Math.floor(Math.random() * 4); // 0 to 3 rotations
-
-        // 3. Apply the rotations
-        for (let i = 0; i < rotations; i++) {
-            newShape.matrix = rotateMatrix(newShape.matrix);
-        }
-
-        // 4. Handle Symmetrical Shapes
-        // After rotating, a shape like 'Square' or 'Cross' will return to its original matrix.
-        // Asymmetrical shapes like 'L3' will yield 4 unique variations.
-
-        batch.push(newShape);
-    }
-    return batch;
+function matrixToKey(matrix) {
+  if (!Array.isArray(matrix)) {
+    return "";
+  }
+  return matrix
+    .map((row) => (Array.isArray(row) ? row.join("") : ""))
+    .join("|");
 }
 
-  function cloneShapeDefinition(template) {
+function uniqueRotations(matrix) {
+  const rotations = [];
+  const seen = new Set();
+  let current = matrix.map((row) => row.slice());
+  for (let i = 0; i < 4; i += 1) {
+    const key = matrixToKey(current);
+    if (!seen.has(key)) {
+      seen.add(key);
+      rotations.push(current.map((row) => row.slice()));
+    }
+    current = rotateMatrix(current);
+  }
+  return rotations;
+}
+
+function createShapeBatch(board) {
+  const batch = [];
+  const boardSnapshot = Array.isArray(board) ? board : null;
+
+  // Exclude explicit vertical templates that would duplicate rotated variants.
+  const rotationTemplates = SHAPES.filter(
+    (shape) => shape.name !== "Tall3" && shape.name !== "Tall4"
+  );
+
+  const baseTemplates = rotationTemplates.length ? rotationTemplates : SHAPES;
+
+  const variantPool = [];
+  baseTemplates.forEach((template) => {
+    uniqueRotations(template.matrix).forEach((matrix) => {
+      variantPool.push({ template, matrix });
+    });
+  });
+
+  if (!variantPool.length) {
+    while (batch.length < SHAPES_PER_BATCH) {
+      const template = SHAPES[Math.floor(Math.random() * SHAPES.length)];
+      batch.push(cloneShapeDefinition(template));
+    }
+    return batch;
+  }
+
+  const placeableVariants = boardSnapshot
+    ? variantPool.filter(({ matrix }) => canPlaceShape(matrix, boardSnapshot))
+    : variantPool.slice();
+
+  const basePool = placeableVariants.length ? placeableVariants : variantPool;
+  let workingPool = basePool.slice();
+
+  while (batch.length < SHAPES_PER_BATCH) {
+    if (!workingPool.length) {
+      workingPool = basePool.slice();
+    }
+    const index = Math.floor(Math.random() * workingPool.length);
+    const variant = workingPool.splice(index, 1)[0];
+    batch.push(cloneShapeDefinition(variant.template, variant.matrix));
+  }
+
+  return batch;
+}
+
+  function cloneShapeDefinition(template, matrixOverride) {
+    const sourceMatrix = matrixOverride ?? template.matrix;
     return {
       id: createShapeId(),
       name: template.name,
-      matrix: template.matrix.map((row) => row.slice()),
+      matrix: sourceMatrix.map((row) => row.slice()),
       color: template.color
     };
+  }
+
+  function pickRandom(list) {
+    if (!Array.isArray(list) || list.length === 0) {
+      return null;
+    }
+    const index = Math.floor(Math.random() * list.length);
+    return list[index] ?? null;
+  }
+
+  function getFeedbackFromPool(pool) {
+    if (!pool) {
+      return null;
+    }
+    const message = pickRandom(pool.messages);
+    if (!message) {
+      return null;
+    }
+    return { message, themeClass: pool.theme };
+  }
+
+  function generateClearFeedback(rowsCleared, colsCleared, totalLines, boardIsEmpty) {
+    if (totalLines <= 0) {
+      return null;
+    }
+    if (boardIsEmpty) {
+      return getFeedbackFromPool(CLEAR_FEEDBACK.perfect);
+    }
+
+    if (rowsCleared > 0 && colsCleared > 0) {
+      if (totalLines >= 4) {
+        return (
+          getFeedbackFromPool(CLEAR_FEEDBACK.comboEpic) ??
+          getFeedbackFromPool(CLEAR_FEEDBACK.comboStrong) ??
+          getFeedbackFromPool(CLEAR_FEEDBACK.comboBasic)
+        );
+      }
+      if (rowsCleared >= 2 && colsCleared >= 2) {
+        return (
+          getFeedbackFromPool(CLEAR_FEEDBACK.comboStrong) ??
+          getFeedbackFromPool(CLEAR_FEEDBACK.comboBasic)
+        );
+      }
+      return getFeedbackFromPool(CLEAR_FEEDBACK.comboBasic);
+    }
+
+    if (rowsCleared > 0) {
+      if (rowsCleared === 1) {
+        return getFeedbackFromPool(CLEAR_FEEDBACK.singleRow);
+      }
+      if (rowsCleared === 2) {
+        return getFeedbackFromPool(CLEAR_FEEDBACK.double);
+      }
+      if (rowsCleared === 3) {
+        return getFeedbackFromPool(CLEAR_FEEDBACK.triple);
+      }
+      return getFeedbackFromPool(CLEAR_FEEDBACK.quad);
+    }
+
+    if (colsCleared > 0) {
+      if (colsCleared === 1) {
+        return getFeedbackFromPool(CLEAR_FEEDBACK.singleColumn);
+      }
+      if (colsCleared === 2) {
+        return getFeedbackFromPool(CLEAR_FEEDBACK.double);
+      }
+      if (colsCleared === 3) {
+        return getFeedbackFromPool(CLEAR_FEEDBACK.triple);
+      }
+      return getFeedbackFromPool(CLEAR_FEEDBACK.quad);
+    }
+
+    return null;
+  }
+
+  function isBoardEmpty(board) {
+    if (!Array.isArray(board)) {
+      return false;
+    }
+    for (let row = 0; row < board.length; row += 1) {
+      const rowCells = board[row];
+      if (!Array.isArray(rowCells)) {
+        continue;
+      }
+      for (let col = 0; col < rowCells.length; col += 1) {
+        if (rowCells[col]) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  function removeStatusThemeClasses(element) {
+    if (!element) {
+      return;
+    }
+    const elementCtor = typeof Element !== "undefined" ? Element : null;
+    if (elementCtor && !(element instanceof elementCtor)) {
+      return;
+    }
+    STATUS_THEME_CLASSES.forEach((className) => {
+      element.classList.remove(className);
+    });
   }
 
   function getPlacementCells(matrix, anchorRow, anchorCol, board) {
@@ -783,7 +1167,7 @@ function createShapeBatch() {
     }
 
     if (!rowsToClear.length && !colsToClear.length) {
-      return { rowsCleared: 0, colsCleared: 0, totalLines: 0 };
+      return { rowsCleared: 0, colsCleared: 0, totalLines: 0, rows: [], cols: [] };
     }
 
     rowsToClear.forEach((rowIndex) => {
@@ -801,7 +1185,9 @@ function createShapeBatch() {
     return {
       rowsCleared: rowsToClear.length,
       colsCleared: colsToClear.length,
-      totalLines: rowsToClear.length + colsToClear.length
+      totalLines: rowsToClear.length + colsToClear.length,
+      rows: rowsToClear.slice(),
+      cols: colsToClear.slice()
     };
   }
 
