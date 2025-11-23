@@ -5,7 +5,7 @@
   --accent: #4cc9f0;
   --accent-muted: #3a86ff;
   --text: #f1f5ff;
-  --grid-empty: #1f2a44;
+  --grid-empty: #28375a;
   --grid-filled: #4cc9f0;
   --grid-preview: rgba(76, 201, 240, 0.45);
   --danger: #ff6b6b;
@@ -31,7 +31,7 @@ body {
 
 body {
   margin: 0;
-  background: radial-gradient(circle at top, #2a3450, #0b1120 65%);
+  background: black;
   color: var(--text);
 }
 
@@ -80,7 +80,6 @@ main.layout {
   grid-template-columns: repeat(8, minmax(0, 1fr));
   grid-template-rows: repeat(8, minmax(0, 1fr));
   gap: clamp(2px, 1vw, 6px);
-  background: #0f172a;
   border-radius: 12px;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
   touch-action: none;
@@ -182,7 +181,8 @@ main.layout {
 
 .next-shape:disabled,
 .next-shape.unavailable {
-  opacity: 0.4;
+  opacity: 0.2;
+  background: rgba(128, 128, 128, 0.753);
   cursor: not-allowed;
   transform: none;
   border-color: transparent;
