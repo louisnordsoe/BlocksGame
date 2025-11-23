@@ -14,9 +14,23 @@
   font-family: "Segoe UI", Tahoma, sans-serif;
 }
 
+html,
+body {
+  height: 100vh;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+@supports (height: 100dvh) {
+  html,
+  body {
+    height: 100dvh;
+    min-height: 100dvh;
+  }
+}
+
 body {
   margin: 0;
-  min-height: 100vh;
   background: radial-gradient(circle at top, #2a3450, #0b1120 65%);
   color: var(--text);
 }
@@ -25,9 +39,14 @@ main.layout {
   display: grid;
   grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
   height: 100vh;
-  height: 100svh;
   width: 100vw;
   gap: 0;
+}
+
+@supports (height: 100dvh) {
+  main.layout {
+    height: 100dvh;
+  }
 }
 
 .panel {
@@ -35,7 +54,6 @@ main.layout {
   align-items: center;
   justify-content: space-between;
   gap: clamp(0.5rem, 2vw, 1rem);
-  padding: clamp(0.4rem, 1.5vw, 0.85rem) clamp(0.6rem, 2vw, 1.2rem);
 }
 
 .board-section,
@@ -59,8 +77,8 @@ main.layout {
   width: 100%;
   height: 100%;
   display: grid;
-  grid-template-columns: repeat(10, minmax(0, 1fr));
-  grid-template-rows: repeat(10, minmax(0, 1fr));
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  grid-template-rows: repeat(8, minmax(0, 1fr));
   gap: clamp(2px, 1vw, 6px);
   background: #0f172a;
   border-radius: 12px;
@@ -83,6 +101,33 @@ main.layout {
 
 .cell.preview {
   background: var(--preview-color, var(--grid-preview));
+}
+
+.drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 999;
+  display: grid;
+  pointer-events: none;
+  opacity: 0.92;
+  filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.35));
+  transform: translate(-9999px, -9999px);
+}
+
+.drag-ghost-cell {
+  width: 100%;
+  height: 100%;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.drag-ghost-cell.filled {
+  background: var(--fill-color, rgba(255, 255, 255, 0.35));
+}
+
+.drag-ghost-cell.empty {
+  background: transparent;
 }
 
 .status {
@@ -122,7 +167,7 @@ main.layout {
 }
 
 .next-shape {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.15);
   border-radius: 14px;
   padding: clamp(0.6rem, 2vw, 1rem);
   display: inline-grid;
@@ -133,6 +178,21 @@ main.layout {
   border: 2px solid transparent;
   transition: transform 0.18s ease, border-color 0.18s ease;
   touch-action: none;
+}
+
+.next-shape:disabled,
+.next-shape.unavailable {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.next-shape:disabled:hover,
+.next-shape:disabled:focus {
+  transform: none;
+  border-color: transparent;
 }
 
 .next-shape:hover,
@@ -182,6 +242,63 @@ main.layout {
   line-height: 1;
 }
 
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(4, 12, 24, 0.75);
+  z-index: 1000;
+  padding: clamp(1rem, 4vw, 3rem);
+}
+
+.modal-overlay[hidden] {
+  display: none;
+}
+
+.modal-card {
+  background: rgba(16, 20, 31, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  padding: clamp(1.2rem, 4vw, 2rem);
+  text-align: center;
+  max-width: min(90vw, 320px);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+}
+
+.modal-title {
+  margin: 0 0 clamp(0.5rem, 2vw, 1rem);
+  font-size: clamp(1.4rem, 4vw, 1.9rem);
+}
+
+.modal-message {
+  margin: 0 0 clamp(1rem, 3vw, 1.5rem);
+  color: rgba(241, 245, 255, 0.85);
+  font-size: clamp(1rem, 3.5vw, 1.1rem);
+}
+
+.modal-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.65rem 1.6rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--accent);
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.modal-button:hover,
+.modal-button:focus {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgba(76, 201, 240, 0.25);
+}
+
 @keyframes pulse {
   0% {
     transform: scale(1);
@@ -198,8 +315,6 @@ main.layout {
   main.layout {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
-    height: 100vh;
-    height: 100svh;
   }
 
   .board {
